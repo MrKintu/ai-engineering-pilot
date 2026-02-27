@@ -1,0 +1,23 @@
+{
+  "queries": 200,
+  "hits": 194,
+  "misses": 6,
+  "cache_hit_rate": 0.97,
+  "total_estimated_cost_usd": "0.1371",
+  "avg_latency_ms": 6.28,
+  "batch": {
+    "queries": 60,
+    "batch_size": 10,
+    "single_ms": 12204.23,
+    "batch_ms": 3046.91,
+    "speedup_x": 4.01
+  },
+  "prompt_optimization": {
+    "long_prompt_tokens": 308,
+    "short_prompt_tokens": 148,
+    "token_reduction": 160,
+    "long_prompt_cost": "0.0308",
+    "short_prompt_cost": "0.0148",
+    "cost_reduction": "0.0160"
+  }
+}

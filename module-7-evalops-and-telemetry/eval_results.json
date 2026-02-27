@@ -1,0 +1,233 @@
+{
+  "total_cases": 100,
+  "correct": 84,
+  "accuracy": 0.84,
+  "faithfulness": 0.84,
+  "answer_relevance": 1.0,
+  "failures": [
+    {
+      "case": {
+        "case_id": "C004",
+        "category": "Client Dinner",
+        "total": "217.97",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Employee",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for client relationship spend",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C006",
+        "category": "Meal",
+        "total": "69.87",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Manager",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C007",
+        "category": "Client Dinner",
+        "total": "183.55",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Employee",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for client relationship spend",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C015",
+        "category": "Meal",
+        "total": "74.57",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Vice President",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C017",
+        "category": "Meal",
+        "total": "76.28",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Employee",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C018",
+        "category": "Meal",
+        "total": "79.66",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Vice President",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C031",
+        "category": "Meal",
+        "total": "75.33",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Vice President",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C038",
+        "category": "Meal",
+        "total": "78.33",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Employee",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C046",
+        "category": "Meal",
+        "total": "75.83",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Employee",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C052",
+        "category": "Meal",
+        "total": "79.15",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Manager",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C063",
+        "category": "Meal",
+        "total": "63.68",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Manager",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C064",
+        "category": "Client Dinner",
+        "total": "160.92",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Employee",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for client relationship spend",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C071",
+        "category": "Meal",
+        "total": "38.45",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Employee",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C074",
+        "category": "Meal",
+        "total": "43.89",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Employee",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C093",
+        "category": "Meal",
+        "total": "36.85",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Manager",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    },
+    {
+      "case": {
+        "case_id": "C096",
+        "category": "Meal",
+        "total": "69.92",
+        "has_receipt": true,
+        "suspicious_vendor": false,
+        "employee_role": "Vice President",
+        "ground_truth_approved": false
+      },
+      "predicted_approved": true,
+      "reason": "Approved: friendly flexibility for meal claims",
+      "ground_truth_approved": false
+    }
+  ]
+}

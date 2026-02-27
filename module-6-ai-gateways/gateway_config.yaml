@@ -1,0 +1,25 @@
+version: 1
+gateway:
+  logging: enabled
+  cost_tracking: enabled
+  timeout_seconds: 30
+providers:
+  - name: openai
+    model: gpt-4o-mini
+    role: primary
+  - name: azure
+    model: gpt-4o-mini
+    role: failover
+  - name: anthropic
+    model: claude-3-5-haiku
+    role: failover
+  - name: groq
+    model: llama-3.1-8b-instant
+    role: low_cost
+routing:
+  simple: [groq, openai, azure]
+  moderate: [openai, azure, anthropic]
+  complex: [openai, azure, anthropic]
+fallback:
+  strategy: ordered_failover
+  on_error: true
