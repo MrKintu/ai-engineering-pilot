@@ -166,7 +166,7 @@ class CapstoneEngine:
         if date_match:
             date = date_match.group(1)
 
-        total_match = re.search(r"(?:total|amount)\s*[:\-]?\s*\$?([0-9]+(?:\.[0-9]{2})?)", text, re.IGNORECASE)
+        total_match = re.search(r"(?:total|amount)\s*[:\-]?\s*\$?(\d+(?:\.\d{2})?)", text, re.IGNORECASE)
         if total_match:
             total = float(total_match.group(1))
 

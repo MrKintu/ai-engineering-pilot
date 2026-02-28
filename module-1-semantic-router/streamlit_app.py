@@ -43,7 +43,7 @@ if st.button("Route & Extract", type="primary"):
                 result = router.handle(receipt_text)
                 
                 # Display Results
-                st.success(f"Processing Complete!")
+                st.success("Processing Complete!")
                 
                 col1, col2 = st.columns(2)
                 with col1:
