@@ -26,21 +26,21 @@ ai-engineering-fellowship/
 ├── 📋 Configuration Files
 │   ├── .env                    # Environment variables
 │   ├── pyproject.toml          # Python dependencies
-│   ├── uv.lock                # Dependency lock file
+│   ├── uv.lock                 # Dependency lock file
 │   └── logger_config.py        # Centralised logging configuration
 │
 ├── 🗂️ Module Directories
-│   ├── module-1-semantic-router/          # Intent classification
-│   ├── module-2-structured-generation/     # Data extraction
-│   ├── module-3-rag-systems/              # Policy retrieval
-│   ├── module-4-agentic-workflows/        # Decision making
-│   ├── module-5-model-context-protocol/   # ERP integration
-│   ├── module-6-ai-gateways/              # Model routing
-│   ├── module-7-evalops-and-telemetry/    # Monitoring
-│   ├── module-8-governance-and-safety/     # Security
-│   ├── module-9-performance-and-cost-engineering/ # Optimization
-│   ├── module-10-snapaudit-capstone/      # Integration
-│   └── crew-ai/                         # Multi-agent orchestration
+│   ├── module-1-semantic-router/                   # Intent classification
+│   ├── module-2-structured-generation/             # Data extraction
+│   ├── module-3-rag-systems/                       # Policy retrieval
+│   ├── module-4-agentic-workflows/                 # Decision making
+│   ├── module-5-model-context-protocol/            # ERP integration
+│   ├── module-6-ai-gateways/                       # Model routing
+│   ├── module-7-evalops-and-telemetry/             # Monitoring
+│   ├── module-8-governance-and-safety/             # Security
+│   ├── module-9-performance-and-cost-engineering/  # Optimization
+│   ├── module-10-snapaudit-capstone/               # Integration
+│   └── module-11-crew-ai/                          # Multi-agent orchestration
 │
 ├── 📊 Logs & Output
 │   └── logs/                    # Application logs
