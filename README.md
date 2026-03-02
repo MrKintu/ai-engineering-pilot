@@ -464,13 +464,13 @@ tail -f logs/*.log
 
 ```bash
 # Test CrewAI integration
-uv run crew-ai/test_integration.py
+uv run module-11-crew-ai/test_integration.py
 
 # Check Ollama connection
 curl -s http://localhost:11434/api/tags
 
 # Test individual components
-uv run crew-ai/run_demo.py
+uv run module-11-crew-ai/run_demo.py
 ```
 
 **Performance Issues**
