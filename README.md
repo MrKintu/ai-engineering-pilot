@@ -396,7 +396,7 @@ for name, text in samples.items():
 
 ### **Adding New Modules**
 
-1. Create module directory: `module-11-new-feature/`
+1. Create module directory: `module-12-new-feature/`
 2. Implement core functionality
 3. Add Streamlit demo: `streamlit_app.py`
 4. Add Jupyter notebook: `module-11-new-feature.ipynb`
