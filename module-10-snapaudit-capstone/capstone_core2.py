@@ -5,10 +5,12 @@ import json
 import os
 import sys
 import base64
+import requests
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from dotenv import load_dotenv
 
 # Import centralized logging configuration
 sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -16,6 +18,14 @@ from logger_config import get_logger
 
 # Initialize logger for this module
 logger = get_logger(__name__)
+
+# Load environment variables from .env file in root directory
+load_dotenv()
+env = os.environ
+
+# Ollama configuration
+OLLAMA_BASE_URL = env.get("OLLAMA_BASE_URL")
+OLLAMA_VISION_MODEL = env.get("OLLAMA_VISION_MODEL")
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -406,7 +416,126 @@ class CapstoneEngine:
         )
 
     # ---------------- Utility ----------------
+    def _extract_text_with_ollama(
+        self,
+        image_bytes: bytes,
+        model: str = None,
+    ) -> Dict[str, Any]:
+        """Extract receipt text from an uploaded image via Ollama Vision."""
+        if model is None:
+            model = OLLAMA_VISION_MODEL
+        
+        logger.info(f"Extracting text from image using Ollama Vision model: {model}")
+        
+        try:
+            # Convert image to base64
+            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            
+            # Prepare OCR prompt for Ollama
+            ocr_prompt = "Extract all visible text from this receipt image. Return only the plain text as it appears on the receipt, with no additional commentary or formatting."
+            
+            # Call Ollama Vision API
+            response = requests.post(
+                f"{OLLAMA_BASE_URL}/api/chat",
+                json={
+                    "model": model,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": ocr_prompt,
+                            "images": [image_b64]
+                        }
+                    ],
+                    "stream": False,
+                    "options": {"temperature": 0, "top_p": 0.1},
+                },
+                timeout=180,  # Increased from 120 to 180 seconds
+            )
+            
+            response.raise_for_status()
+            data = response.json()
+            text = data.get("message", {}).get("content", "").strip()
+            
+            if not text:
+                return {"ok": False, "error": "No text extracted from image."}
+            
+            logger.info(f"Successfully extracted {len(text)} characters from image using Ollama")
+            return {"ok": True, "text": text, "model": model}
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Ollama API request failed: {e}")
+            return {"ok": False, "error": f"Ollama API error: {e}"}
+        except Exception as e:
+            logger.error(f"Ollama vision extraction failed: {e}")
+            return {"ok": False, "error": f"Ollama extraction error: {e}"}
+
+    def _handle_auto_backend(self, image_bytes: bytes, mime_type: str, model: str) -> Dict[str, Any]:
+        """Handle auto backend selection logic."""
+        openai_key = os.getenv("OPENAI_API_KEY")
+        
+        if openai_key:
+            # Try Ollama first, fallback to OpenAI
+            ollama_result = self._extract_text_with_ollama(image_bytes, OLLAMA_VISION_MODEL)
+            if ollama_result["ok"]:
+                ollama_result["backend"] = "ollama"
+                return ollama_result
+            else:
+                logger.warning(f"Ollama extraction failed: {ollama_result['error']}, falling back to OpenAI")
+                openai_result = self._extract_text_with_openai(image_bytes, mime_type, model)
+                if openai_result["ok"]:
+                    openai_result["backend"] = "openai"
+                    return openai_result
+                else:
+                    return openai_result
+        else:
+            # No OpenAI key, use Ollama only
+            ollama_result = self._extract_text_with_ollama(image_bytes, OLLAMA_VISION_MODEL)
+            ollama_result["backend"] = "ollama"
+            return ollama_result
+
+    def _handle_explicit_backend(self, image_bytes: bytes, mime_type: str, model: str, backend: str) -> Dict[str, Any]:
+        """Handle explicit backend selection."""
+        if backend == "ollama":
+            # Use Ollama vision model, ignore the input model parameter
+            ollama_model = OLLAMA_VISION_MODEL
+            result = self._extract_text_with_ollama(image_bytes, ollama_model)
+            result["backend"] = "ollama"
+            return result
+        elif backend == "openai":
+            # Use the provided model for OpenAI
+            result = self._extract_text_with_openai(image_bytes, mime_type, model)
+            result["backend"] = "openai"
+            return result
+        else:
+            return {"ok": False, "error": f"Invalid backend: {backend}. Use 'openai', 'ollama', or 'auto'."}
+
     def extract_text_from_image(
+        self,
+        image_bytes: bytes,
+        mime_type: str = "image/png",
+        model: str = "gpt-4o-mini",
+        backend: str = "auto",
+    ) -> Dict[str, Any]:
+        """
+        Extract receipt text from an uploaded image.
+        
+        Args:
+            image_bytes: Raw image data
+            mime_type: Image MIME type (e.g., "image/png")
+            model: Model name (backend-specific)
+            backend: "openai", "ollama", or "auto" (default)
+        
+        Returns:
+            Dict with "ok", "text", "model", and "backend" keys
+        """
+        logger.info(f"Extracting text from image using backend: {backend}")
+        
+        if backend == "auto":
+            return self._handle_auto_backend(image_bytes, mime_type, model)
+        else:
+            return self._handle_explicit_backend(image_bytes, mime_type, model, backend)
+
+    def _extract_text_with_openai(
         self,
         image_bytes: bytes,
         mime_type: str = "image/png",

@@ -167,13 +167,13 @@ graph TD
 
 ```bash
 # Run the CrewAI Streamlit interface
-uv run py -m streamlit run crew-ai/streamlit_app.py
+uv run py -m streamlit run module-11-crew-ai/streamlit_app.py
 
 # Or run the demo directly
-uv run crew-ai/run_demo.py
+uv run module-11-crew-ai/run_demo.py
 
 # Run integration tests
-uv run crew-ai/test_integration.py
+uv run module-11-crew-ai/test_integration.py
 ```
 
 #### **Key Features**
@@ -241,10 +241,10 @@ uv run streamlit run module-10-snapaudit-capstone/streamlit_app2.py
 
 ```bash
 # Explore individual modules
-uv run streamlit run module-1-semantic-router/streamlit_app2.py
-uv run streamlit run module-3-rag-systems/streamlit_app2.py
-uv run streamlit run module-8-governance-and-safety/streamlit_app.py
-uv run streamlit run crew-ai/streamlit_app.py
+uv run py -m streamlit run module-1-semantic-router/streamlit_app2.py
+uv run py -m streamlit run module-3-rag-systems/streamlit_app2.py
+uv run py -m streamlit run module-8-governance-and-safety/streamlit_app.py
+uv run py -m streamlit run module-11-crew-ai/streamlit_app.py
 ```
 
 ### **Option 3: Jupyter Notebooks**
@@ -256,7 +256,7 @@ jupyter lab
 # Open individual module notebooks
 # module-1-semantic-router/module-1-semantic-router.ipynb
 # module-10-snapaudit-capstone/module-10-snapaudit-capstone.ipynb
-# crew-ai/run_demo.ipynb
+# module-11-crew-ai/run_demo.ipynb
 ```
 
 ## ⚙️ Configuration
@@ -376,7 +376,7 @@ uv run python module-10-snapaudit-capstone/test_capstone.py
 uv run python module-4-agentic-workflows/test_graph.py
 
 # Run CrewAI integration tests
-uv run crew-ai/test_integration.py
+uv run module-11-crew-ai/test_integration.py
 ```
 
 ### **Integration Testing**

@@ -1,7 +1,9 @@
+import os
 import streamlit as st
 import json
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Add parent directory to path for logger_config
 sys.path.append(str(Path(__file__).parents[1]))
@@ -13,18 +15,29 @@ logger = get_logger(__name__)
 # Add the notebook directory to sys.path to allow imports if needed
 sys.path.append(str(Path(__file__).parent))
 
+# Load environment variables from .env file in root directory
+load_dotenv()
+env = os.environ
+
+OLLAMA_MODEL = env.get("OLLAMA_MODEL")
+OLLAMA_VISION_MODEL = env.get("OLLAMA_VISION_MODEL")
+
 def load_extractor(name: str):
     """Dynamically import and instantiate the requested extractor."""
     logger.info(f"Loading extractor: {name}")
     
     if name == "Ollama":
-        from receipt_extractor import ReceiptExtractorOllama
-        # Use gemma3:latest for better performance
-        extractor = ReceiptExtractorOllama(model="gemma3:latest", max_retries=3)
-        logger.info("Ollama extractor loaded successfully")
+        from receipt_extractor2 import ReceiptExtractorOllama
+        # Use both text and vision models
+        extractor = ReceiptExtractorOllama(
+            model=OLLAMA_MODEL, 
+            vision_model=OLLAMA_VISION_MODEL, 
+            max_retries=3
+        )
+        logger.info("Ollama extractor (with vision) loaded successfully")
         return extractor
     else:
-        from receipt_extractor import ReceiptExtractorOpenAI
+        from receipt_extractor2 import ReceiptExtractorOpenAI
         # Use gpt-4o-mini for cost efficiency
         extractor = ReceiptExtractorOpenAI(model="gpt-4o-mini", max_retries=3)
         logger.info("OpenAI extractor loaded successfully")
@@ -46,32 +59,27 @@ with tab2:
         st.image(uploaded_file, caption="Uploaded Receipt", use_container_width=True)
 
 # Engine selection
-engine = st.selectbox("Extraction Engine", ["Ollama", "OpenAI"], index=0)
-
-if uploaded_file and engine == "Ollama":
-    st.warning("⚠️ Ollama does not support vision extraction. Switching to OpenAI is recommended for images.")
+engine = st.selectbox("Extraction Engine", ["Ollama (Local Vision)", "OpenAI (Cloud)"], index=0)
 
 # Add model info display
-if engine == "Ollama":
-    st.info("🤖 Using local Gemma3 model via Ollama")
+if engine == "Ollama (Local Vision)":
+    st.info("🤖 Using local Gemma3 + LLaVA models via Ollama (Vision + Text)")
 else:
-    st.info("🌐 Using OpenAI GPT-4o-mini model")
+    st.info("🌐 Using OpenAI GPT-4o-mini model (Vision + Text)")
 
 if st.button("Extract", type="primary"):
     try:
-        extractor = load_extractor(engine)
+        # Map engine names to extractor names
+        extractor_name = "Ollama" if engine == "Ollama (Local Vision)" else "OpenAI"
+        extractor = load_extractor(extractor_name)
         
         with st.spinner("Extracting structured data..."):
             if uploaded_file:
                 logger.info(f"Processing uploaded image: {uploaded_file.name}")
-                if engine != "OpenAI":
-                    st.error("❌ Image extraction is currently only supported via the OpenAI engine.")
-                    logger.warning("User tried to extract image with non-OpenAI engine")
-                else:
-                    receipt = extractor.extract_from_image(uploaded_file.getvalue(), mime_type=uploaded_file.type)
-                    logger.info(f"Image extraction successful: {receipt.model_dump()}")
-                    st.success("✅ Extraction succeeded!")
-                    st.json(receipt.model_dump())
+                receipt = extractor.extract_from_image(uploaded_file.getvalue(), mime_type=uploaded_file.type)
+                logger.info(f"Image extraction successful: {receipt.model_dump()}")
+                st.success("✅ Extraction succeeded!")
+                st.json(receipt.model_dump())
             else:
                 if not receipt_text.strip():
                     st.error("Please provide receipt text or upload an image.")
