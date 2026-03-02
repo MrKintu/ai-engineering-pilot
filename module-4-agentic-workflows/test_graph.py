@@ -2,20 +2,20 @@ import sys
 import os
 from typing import Dict, Any, Optional, TypedDict, List, Annotated
 import operator
+from pathlib import Path
+from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, AIMessage
 
-# Load OPENAI_API_KEY from repo-root .env if present.
-env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
-if os.path.exists(env_path) and "OPENAI_API_KEY" not in os.environ:
-    with open(env_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            if key.strip() == "OPENAI_API_KEY":
-                os.environ["OPENAI_API_KEY"] = value.strip().strip("'\"")
-                break
+# Add parent directory to path for logger_config
+sys.path.append(str(Path(__file__).parents[1]))
+from logger_config import get_logger
+
+# Load environment variables from .env file in root directory
+load_dotenv()
+env = os.environ
+
+# Set up logger
+logger = get_logger(__name__)
 
 # Add snapaudit-integrated to path
 sys.path.append("../snapaudit-integrated")
@@ -53,8 +53,16 @@ except Exception as e:
     policy_retriever = MockPolicyRetriever()
 
 def check_policy_tool(receipt_data: Dict[str, Any], role: str = "Employee") -> Dict[str, Any]:
-    print(f"--- [Tool: CheckPolicy] Checking {receipt_data.get('category')} for ${receipt_data.get('total')} ---")
+    logger.info(f"Checking policy for receipt: {receipt_data.get('id', 'unknown')} with role: {role}")
+    logger.debug(f"Receipt category: {receipt_data.get('category')}, amount: ${receipt_data.get('total')}")
+    
     verdict = policy_retriever.check_compliance(receipt_data, role)
+    
+    if verdict.approved:
+        logger.info(f"Policy check approved: {verdict.reason}")
+    else:
+        logger.warning(f"Policy check denied: {verdict.reason}")
+    
     return {
         "approved": verdict.approved,
         "reason": verdict.reason,
@@ -80,34 +88,53 @@ class AuditState(TypedDict):
     next_step: str
 
 def planner_node(state: AuditState):
-    print("--- [Node: Planner] ---")
+    logger.info("--- [Node: Planner] Starting planning phase ---")
+    logger.debug(f"Current state: receipt_id={state.get('receipt_id')}, next_step={state.get('next_step')}")
+    
     if not state.get('receipt_data'):
+        logger.info("No receipt data found, retrieving receipt")
         receipt = get_receipt_tool(state['receipt_id'])
         return {"receipt_data": receipt, "next_step": "check_policy"}
+    
     if not state.get('verdict'):
+        logger.info("No verdict found, proceeding to policy check")
         return {"next_step": "check_policy"}
+    
+    logger.info("Verdict exists, proceeding to critic")
     return {"next_step": "critic"}
 
 def executor_node(state: AuditState):
-    print("--- [Node: Executor] ---")
+    logger.info("--- [Node: Executor] Starting execution phase ---")
+    logger.debug(f"Next step: {state.get('next_step')}")
+    
     if state['next_step'] == "check_policy":
+        logger.info("Executing policy check")
         receipt = state['receipt_data']
         verdict = check_policy_tool(receipt)
         return {"verdict": verdict}
+    
+    logger.warning("Unknown next step in executor")
     return {}
 
 def critic_node(state: AuditState):
-    print("--- [Node: Critic] ---")
+    logger.info("--- [Node: Critic] Starting evaluation phase ---")
     verdict = state.get('verdict')
+    
     if not verdict:
+        logger.error("No verdict found in state")
         return {"status": "error"}
     
     receipt_total = state['receipt_data'].get('total', 0)
+    logger.debug(f"Evaluating verdict: approved={verdict.get('approved')}, total=${receipt_total}")
+    
     if verdict['approved']:
         if receipt_total > 1000:
+            logger.warning(f"High-value approved receipt flagged for human review: ${receipt_total}")
             return {"status": "flagged_for_human"}
+        logger.info(f"Receipt approved: ${receipt_total}")
         return {"status": "approved"}
     else:
+        logger.warning(f"Receipt denied: {verdict.get('reason')}")
         return {"status": "denied"}
 
 # Build Graph
@@ -130,15 +157,23 @@ workflow.add_conditional_edges("critic", route_critic, {END: END, "planner": "pl
 app = workflow.compile()
 
 # Test
+logger.info("Starting agentic workflow tests")
+
 print("\n>>> TEST 1: R001 (Should be Approved)")
+logger.info("Test 1: Processing receipt R001 (expected: approved)")
 res1 = app.invoke({"receipt_id": "R001", "messages": [], "status": "pending", "receipt_data": {}, "verdict": None})
+logger.info(f"Test 1 result: {res1['status']}")
 print(f"Result: {res1['status']}")
 
 print("\n>>> TEST 2: R003 (Should be Flagged)")
+logger.info("Test 2: Processing receipt R003 (expected: flagged_for_human)")
 res2 = app.invoke({"receipt_id": "R003", "messages": [], "status": "pending", "receipt_data": {}, "verdict": None})
+logger.info(f"Test 2 result: {res2['status']}")
 print(f"Result: {res2['status']}")
 
 if res1['status'] == 'approved' and res2['status'] == 'flagged_for_human':
+    logger.info("✓ All tests passed successfully")
     print("\n✓ TESTS PASSED")
 else:
+    logger.error(f"✗ Tests failed - R001: {res1['status']}, R003: {res2['status']}")
     print("\n✗ TESTS FAILED")

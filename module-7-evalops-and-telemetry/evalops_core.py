@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 import random
 from typing import Any, Dict, List, Tuple
+
+# Add parent directory to path for logger_config
+sys.path.append(str(Path(__file__).parents[1]))
+from logger_config import get_logger
+
+# Set up logger
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -34,19 +43,26 @@ class SnapAuditPolicyModel:
 
     def __init__(self, variant: str = "baseline"):
         self.variant = variant
+        logger.info(f"Initialized SnapAuditPolicyModel with variant {variant}")
 
     def predict(self, case: ReceiptCase) -> Tuple[bool, str]:
+        logger.info(f"Predicting approval for case {case.case_id}: {case.category} amount=${case.total}")
+        
         # Baseline rules
         if not case.has_receipt:
+            logger.warning(f"Case {case.case_id} denied: missing receipt")
             return False, "Denied: missing receipt"
         if case.suspicious_vendor:
+            logger.warning(f"Case {case.case_id} flagged: suspicious vendor")
             return False, "Denied: suspicious vendor"
 
         # Regression variant: friendlier prompt behavior over-approves borderline spend.
         if self.variant == "friendly_regression":
             if case.category == "Meal" and case.total <= Decimal("80"):
+                logger.info(f"Case {case.case_id} approved: friendly flexibility for meal claims")
                 return True, "Approved: friendly flexibility for meal claims"
             if case.category == "Client Dinner" and case.total <= Decimal("220"):
+                logger.info(f"Case {case.case_id} approved: friendly flexibility for client relationship spend")
                 return True, "Approved: friendly flexibility for client relationship spend"
 
         meal_limit = Decimal("25")
@@ -54,30 +70,40 @@ class SnapAuditPolicyModel:
             meal_limit = Decimal("50")
 
         if case.category in {"Meal", "Coffee"} and case.total > meal_limit:
+            logger.warning(f"Case {case.case_id} denied: exceeds meal limit {meal_limit}")
             return False, f"Denied: exceeds meal limit {meal_limit}"
 
         if case.category == "Client Dinner" and case.total > Decimal("150") and case.employee_role != "Vice President":
+            logger.warning(f"Case {case.case_id} denied: exceeds client dinner limit")
             return False, "Denied: exceeds client dinner limit"
 
+        logger.info(f"Case {case.case_id} approved: policy compliant")
         return True, "Approved: policy compliant"
 
 
 class TelemetryCollector:
     def __init__(self):
+        logger.info("Initializing TelemetryCollector")
         self.events: List[Dict[str, Any]] = []
 
     def log(self, case_id: str, step: str, detail: str):
+        logger.debug(f"Logging telemetry for case {case_id}: {step} - {detail}")
         self.events.append(
             {
-                "time": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                "time": datetime.now(timezone.utc).isoformat(timespec="seconds").replace('+00:00', 'Z'),
                 "case_id": case_id,
                 "step": step,
                 "detail": detail,
             }
         )
 
+    def get_event_count(self) -> int:
+        logger.debug(f"Getting event count: {len(self.events)}")
+        return len(self.events)
+
 
 def make_golden_dataset(size: int = 100, seed: int = 42) -> List[ReceiptCase]:
+    logger.info(f"Creating golden dataset with {size} cases (seed: {seed})")
     rnd = random.Random(seed)
     categories = ["Coffee", "Meal", "Client Dinner", "Travel", "Office Supplies"]
     roles = ["Employee", "Manager", "Vice President"]
@@ -113,7 +139,8 @@ def make_golden_dataset(size: int = 100, seed: int = 42) -> List[ReceiptCase]:
         gt, _ = ground_truth_model.predict(temp_case)
         temp_case.ground_truth_approved = gt
         cases.append(temp_case)
-
+    
+    logger.info(f"Generated {len(cases)} test cases")
     return cases
 
 
@@ -122,6 +149,7 @@ def evaluate_model(
     model: SnapAuditPolicyModel,
     telemetry: TelemetryCollector,
 ) -> Dict[str, Any]:
+    logger.info(f"Starting model evaluation for {len(cases)} cases with model variant: {model.variant}")
     correct = 0
     failures: List[Dict[str, Any]] = []
     faithfulness_scores: List[float] = []
@@ -143,6 +171,7 @@ def evaluate_model(
         if pred == case.ground_truth_approved:
             correct += 1
             telemetry.log(case.case_id, "result", f"correct prediction: {pred}")
+            logger.debug(f"Case {case.case_id}: correct prediction ({pred})")
         else:
             fail = {
                 "case": case.to_dict(),
@@ -152,12 +181,15 @@ def evaluate_model(
             }
             failures.append(fail)
             telemetry.log(case.case_id, "result", f"mismatch prediction: {pred} vs {case.ground_truth_approved}")
+            logger.warning(f"Case {case.case_id}: mismatch prediction - predicted {pred}, expected {case.ground_truth_approved}")
 
     total = len(cases)
     accuracy = correct / total if total else 0.0
     faithfulness_avg = sum(faithfulness_scores) / total if total else 0.0
     relevance_avg = sum(relevance_scores) / total if total else 0.0
 
+    logger.info(f"Evaluation complete: accuracy={accuracy:.4f}, faithfulness={faithfulness_avg:.4f}, relevance={relevance_avg:.4f}")
+    
     return {
         "total_cases": total,
         "correct": correct,

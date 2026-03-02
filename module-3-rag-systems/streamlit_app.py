@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from dotenv import load_dotenv
 
 import networkx as nx
 import requests
@@ -14,10 +15,22 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 from rank_bm25 import BM25Okapi
 
-QDRANT_URL = "http://localhost:6333"
-DEFAULT_COLLECTION = "expense_policy_streamlit"
-OPENAI_API_URL = "https://api.openai.com/v1"
-OPENAI_EMBED_MODEL = "text-embedding-3-small"
+# Import centralized logging configuration
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+from logger_config import get_logger
+
+# Initialize logger for this module
+logger = get_logger(__name__)
+
+# Load environment variables from .env file in root directory
+load_dotenv()
+env = os.environ
+
+QDRANT_URL = env.get("QDRANT_URL")
+DEFAULT_COLLECTION = env.get("DEFAULT_COLLECTION")
+OPENAI_API_URL = env.get("OPENAI_API_URL")
+OPENAI_EMBED_MODEL = env.get("OPENAI_EMBED_MODEL")
 ROOT_ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 APP_DIR = Path(__file__).resolve().parent
 
@@ -84,129 +97,155 @@ class DocumentIngestionPipeline:
     def __init__(self, pdf_path: str):
         self.pdf_path = Path(pdf_path)
         self.chunks: List[DocumentChunk] = []
+        logger.info(f"Initializing DocumentIngestionPipeline for PDF: {pdf_path}")
 
     def load_pdf(self) -> List[Tuple[int, str]]:
-        reader = PdfReader(self.pdf_path)
-        pages = []
-        for page_num, page in enumerate(reader.pages, start=1):
-            text = page.extract_text() or ""
-            pages.append((page_num, text))
-        return pages
+        logger.info(f"Loading PDF: {self.pdf_path}")
+        try:
+            reader = PdfReader(self.pdf_path)
+            pages = []
+            for page_num, page in enumerate(reader.pages, start=1):
+                text = page.extract_text() or ""
+                pages.append((page_num, text))
+            logger.info(f"Successfully loaded {len(pages)} pages from PDF")
+            return pages
+        except Exception as e:
+            logger.error(f"Failed to load PDF {self.pdf_path}: {e}")
+            raise
 
-    def detect_sections(self, pages: List[Tuple[int, str]]) -> List[DocumentChunk]:
+    def _create_section_chunk(self, section_num: str, section_title: str, page_num: int, chunk_counter: int) -> DocumentChunk:
+        """Create a section-level chunk."""
+        return DocumentChunk(
+            chunk_id=f"chunk_{chunk_counter}",
+            text=f"Section {section_num}: {section_title}",
+            section_number=section_num,
+            section_title=section_title,
+            parent_section=None,
+            page_number=page_num,
+            hierarchy_path=[f"Section {section_num}"],
+            chunk_type="section"
+        )
+
+    def _create_subsection_chunk(self, subsection_num: str, subsection_title: str, current_section: str, page_num: int, chunk_counter: int) -> DocumentChunk:
+        """Create a subsection-level chunk."""
+        return DocumentChunk(
+            chunk_id=f"chunk_{chunk_counter}",
+            text=f"{subsection_num} {subsection_title}",
+            section_number=subsection_num,
+            section_title=subsection_title,
+            parent_section=current_section,
+            page_number=page_num,
+            hierarchy_path=[f"Section {current_section}", subsection_num],
+            chunk_type="subsection"
+        )
+
+    def _create_subsubsection_chunk(self, subsubsection_num: str, subsubsection_title: str, current_subsection: str, page_num: int, chunk_counter: int) -> DocumentChunk:
+        """Create a sub-subsection-level chunk."""
+        return DocumentChunk(
+            chunk_id=f"chunk_{chunk_counter}",
+            text=f"{subsubsection_num} {subsubsection_title}",
+            section_number=subsubsection_num,
+            section_title=subsubsection_title,
+            parent_section=current_subsection,
+            page_number=page_num,
+            hierarchy_path=[f"Section {current_subsection.split('.')[0]}", current_subsection, subsubsection_num],
+            chunk_type="subsubsection"
+        )
+
+    def _create_paragraph_chunk(self, para: str, current_section: str, current_subsection: str, page_num: int, chunk_counter: int) -> DocumentChunk:
+        """Create a paragraph-level chunk."""
+        parent = current_subsection or current_section
+        hierarchy = []
+        if current_section:
+            hierarchy.append(f"Section {current_section}")
+        if current_subsection:
+            hierarchy.append(current_subsection)
+
+        return DocumentChunk(
+            chunk_id=f"chunk_{chunk_counter}",
+            text=para,
+            section_number=parent or "0",
+            section_title="",
+            parent_section=parent,
+            page_number=page_num,
+            hierarchy_path=hierarchy,
+            chunk_type="paragraph"
+        )
+
+    def _process_paragraph(self, para: str, current_section: str, current_subsection: str, page_num: int, chunk_counter: int, chunks: List[DocumentChunk]) -> Tuple[str, str, int]:
+        """Process a single paragraph and update tracking variables."""
         import re
 
+        # Patterns for section detection
+        section_pattern = re.compile(r'^Section (\d+):\s*(.+)$', re.MULTILINE)
+        subsection_pattern = re.compile(r'^(\d+\.\d+)\s+(.+)$', re.MULTILINE)
+        subsubsection_pattern = re.compile(r'^(\d+\.\d+\.\d+)\s+(.+)$', re.MULTILINE)
+
+        # Check for main section
+        section_match = section_pattern.search(para)
+        if section_match:
+            section_num = section_match.group(1)
+            section_title = section_match.group(2).strip()
+            chunks.append(self._create_section_chunk(section_num, section_title, page_num, chunk_counter))
+            return section_num, None, chunk_counter + 1
+
+        # Check for subsection (e.g., 4.1)
+        subsection_match = subsection_pattern.search(para)
+        if subsection_match and current_section:
+            subsection_num = subsection_match.group(1)
+            subsection_title = subsection_match.group(2).strip()
+            chunks.append(self._create_subsection_chunk(subsection_num, subsection_title, current_section, page_num, chunk_counter))
+            return current_section, subsection_num, chunk_counter + 1
+
+        # Check for sub-subsection (e.g., 4.1.1)
+        subsubsection_match = subsubsection_pattern.search(para)
+        if subsubsection_match and current_subsection:
+            subsubsection_num = subsubsection_match.group(1)
+            subsubsection_title = subsubsection_match.group(2).strip()
+            chunks.append(self._create_subsubsection_chunk(subsubsection_num, subsubsection_title, current_subsection, page_num, chunk_counter))
+            return current_section, current_subsection, chunk_counter + 1
+
+        # Regular paragraph - attach to current subsection or section
+        if len(para) > 50:  # Only chunk substantial paragraphs
+            chunks.append(self._create_paragraph_chunk(para, current_section, current_subsection, page_num, chunk_counter))
+            return current_section, current_subsection, chunk_counter + 1
+
+        return current_section, current_subsection, chunk_counter
+
+    def detect_sections(self, pages: List[Tuple[int, str]]) -> List[DocumentChunk]:
+        """Detect hierarchical sections and create chunks."""
+        logger.info(f"Starting section detection for {len(pages)} pages")
         chunks: List[DocumentChunk] = []
         current_section = None
         current_subsection = None
         chunk_counter = 0
 
-        section_pattern = re.compile(r"^Section (\d+):\s*(.+)$", re.MULTILINE)
-        subsection_pattern = re.compile(r"^(\d+\.\d+)\s+(.+)$", re.MULTILINE)
-        subsubsection_pattern = re.compile(r"^(\d+\.\d+\.\d+)\s+(.+)$", re.MULTILINE)
-
         for page_num, page_text in pages:
+            # Skip title page and TOC (first 3 pages)
             if page_num <= 3:
                 continue
 
-            paragraphs = [p.strip() for p in page_text.split("\n\n") if p.strip()]
+            # Split into paragraphs
+            paragraphs = [p.strip() for p in page_text.split('\n\n') if p.strip()]
 
             for para in paragraphs:
-                section_match = section_pattern.search(para)
-                if section_match:
-                    section_num = section_match.group(1)
-                    section_title = section_match.group(2).strip()
-                    current_section = section_num
-                    current_subsection = None
+                current_section, current_subsection, chunk_counter = self._process_paragraph(
+                    para, current_section, current_subsection, page_num, chunk_counter, chunks
+                )
 
-                    chunk_counter += 1
-                    chunks.append(
-                        DocumentChunk(
-                            chunk_id=f"chunk_{chunk_counter}",
-                            text=para,
-                            section_number=section_num,
-                            section_title=section_title,
-                            parent_section=None,
-                            page_number=page_num,
-                            hierarchy_path=[f"Section {section_num}"],
-                            chunk_type="section",
-                        )
-                    )
-                    continue
-
-                subsection_match = subsection_pattern.search(para)
-                if subsection_match and current_section:
-                    subsection_num = subsection_match.group(1)
-                    subsection_title = subsection_match.group(2).strip()
-                    current_subsection = subsection_num
-
-                    chunk_counter += 1
-                    chunks.append(
-                        DocumentChunk(
-                            chunk_id=f"chunk_{chunk_counter}",
-                            text=para,
-                            section_number=subsection_num,
-                            section_title=subsection_title,
-                            parent_section=current_section,
-                            page_number=page_num,
-                            hierarchy_path=[f"Section {current_section}", subsection_num],
-                            chunk_type="subsection",
-                        )
-                    )
-                    continue
-
-                subsubsection_match = subsubsection_pattern.search(para)
-                if subsubsection_match and current_subsection:
-                    subsubsection_num = subsubsection_match.group(1)
-                    subsubsection_title = subsubsection_match.group(2).strip()
-
-                    chunk_counter += 1
-                    chunks.append(
-                        DocumentChunk(
-                            chunk_id=f"chunk_{chunk_counter}",
-                            text=para,
-                            section_number=subsubsection_num,
-                            section_title=subsubsection_title,
-                            parent_section=current_subsection,
-                            page_number=page_num,
-                            hierarchy_path=[
-                                f"Section {current_section}",
-                                current_subsection,
-                                subsubsection_num,
-                            ],
-                            chunk_type="subsubsection",
-                        )
-                    )
-                    continue
-
-                if len(para) > 50:
-                    chunk_counter += 1
-                    parent = current_subsection or current_section
-                    hierarchy = []
-                    if current_section:
-                        hierarchy.append(f"Section {current_section}")
-                    if current_subsection:
-                        hierarchy.append(current_subsection)
-
-                    chunks.append(
-                        DocumentChunk(
-                            chunk_id=f"chunk_{chunk_counter}",
-                            text=para,
-                            section_number=parent or "0",
-                            section_title="",
-                            parent_section=parent,
-                            page_number=page_num,
-                            hierarchy_path=hierarchy,
-                            chunk_type="paragraph",
-                        )
-                    )
-
+        logger.info(f"Section detection completed. Created {len(chunks)} chunks")
         return chunks
 
     def ingest(self) -> List[DocumentChunk]:
-        pages = self.load_pdf()
-        self.chunks = self.detect_sections(pages)
-        return self.chunks
+        logger.info("Starting document ingestion pipeline")
+        try:
+            pages = self.load_pdf()
+            self.chunks = self.detect_sections(pages)
+            logger.info(f"Document ingestion completed successfully. Processed {len(self.chunks)} chunks")
+            return self.chunks
+        except Exception as e:
+            logger.error(f"Document ingestion failed: {e}")
+            raise
 
 
 class DenseVectorRetriever:
@@ -220,52 +259,85 @@ class DenseVectorRetriever:
         self.embed_model = embed_model
         self.client = QdrantClient(url=qdrant_url)
         self.embedding_dim = 1536
+        logger.info(f"Initialized DenseVectorRetriever with collection '{collection_name}' and model '{embed_model}'")
 
     def _embed(self, text: str) -> List[float]:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
+            logger.error("OPENAI_API_KEY is not set")
             raise ValueError("OPENAI_API_KEY is not set.")
 
-        response = requests.post(
-            f"{OPENAI_API_URL}/embeddings",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={"model": self.embed_model, "input": text},
-            timeout=60,
-        )
-        response.raise_for_status()
-        return response.json()["data"][0]["embedding"]
+        try:
+            response = requests.post(
+                f"{OPENAI_API_URL}/embeddings",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"model": self.embed_model, "input": text},
+                timeout=60,
+            )
+            response.raise_for_status()
+            embedding = response.json()["data"][0]["embedding"]
+            logger.debug(f"Successfully generated embedding for text (length: {len(text)})")
+            return embedding
+        except Exception as e:
+            logger.error(f"Failed to generate embedding: {e}")
+            raise
 
     def create_collection(self):
+        logger.info(f"Creating Qdrant collection '{self.collection_name}' with embedding dimension {self.embedding_dim}")
         try:
             self.client.delete_collection(self.collection_name)
+            logger.debug(f"Deleted existing collection '{self.collection_name}'")
         except Exception:
             pass
 
-        self.client.create_collection(
-            collection_name=self.collection_name,
-            vectors_config=VectorParams(size=self.embedding_dim, distance=Distance.COSINE),
-        )
+        try:
+            self.client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=VectorParams(size=self.embedding_dim, distance=Distance.COSINE),
+            )
+            logger.info(f"Successfully created collection '{self.collection_name}'")
+        except Exception as e:
+            logger.error(f"Failed to create collection '{self.collection_name}': {e}")
+            raise
 
     def index_chunks(self, chunks: List[DocumentChunk]):
+        logger.info(f"Starting indexing of {len(chunks)} chunks")
         points = []
         for i, chunk in enumerate(chunks):
             embedding = self._embed(chunk.text)
             points.append(PointStruct(id=i, vector=embedding, payload=chunk.to_dict()))
+            
+            if (i + 1) % 10 == 0:
+                logger.debug(f"Processed {i + 1}/{len(chunks)} chunks")
 
-        self.client.upsert(collection_name=self.collection_name, points=points)
+        try:
+            self.client.upsert(collection_name=self.collection_name, points=points)
+            logger.info(f"Successfully indexed {len(chunks)} chunks in collection '{self.collection_name}'")
+        except Exception as e:
+            logger.error(f"Failed to index chunks: {e}")
+            raise
 
     def search(self, query: str, top_k: int = 5) -> List[Tuple[DocumentChunk, float]]:
-        query_embedding = self._embed(query)
-        results = self.client.query_points(
-            collection_name=self.collection_name,
-            query=query_embedding,
-            limit=top_k,
-        ).points
+        logger.debug(f"Searching for query: '{query}' with top_k={top_k}")
+        try:
+            query_embedding = self._embed(query)
+            results = self.client.query_points(
+                collection_name=self.collection_name,
+                query=query_embedding,
+                limit=top_k,
+            ).points
 
-        retrieved = []
-        for result in results:
-            retrieved.append((DocumentChunk(**result.payload), result.score))
-        return retrieved
+            retrieved = []
+            for result in results:
+                chunk = DocumentChunk(**result.payload)
+                score = result.score
+                retrieved.append((chunk, score))
+
+            logger.info(f"Dense search returned {len(retrieved)} results for query: '{query}'")
+            return retrieved
+        except Exception as e:
+            logger.error(f"Dense search failed for query '{query}': {e}")
+            raise
 
 
 class SparseBM25Retriever:
@@ -481,25 +553,33 @@ def build_policy_graph() -> PolicyKnowledgeGraph:
 
 @st.cache_resource(show_spinner=False)
 def initialize_retrievers(pdf_path: str, collection_name: str):
-    pipeline = DocumentIngestionPipeline(pdf_path)
-    chunks = pipeline.ingest()
+    logger.info(f"Initializing retrievers for PDF: {pdf_path}, collection: {collection_name}")
+    try:
+        pipeline = DocumentIngestionPipeline(pdf_path)
+        chunks = pipeline.ingest()
 
-    dense = DenseVectorRetriever(collection_name=collection_name)
-    dense.create_collection()
-    dense.index_chunks(chunks)
+        dense = DenseVectorRetriever(collection_name=collection_name)
+        dense.create_collection()
+        dense.index_chunks(chunks)
 
-    sparse = SparseBM25Retriever()
-    sparse.index_chunks(chunks)
+        sparse = SparseBM25Retriever()
+        sparse.index_chunks(chunks)
 
-    hybrid = HybridRetriever(dense_retriever=dense, sparse_retriever=sparse)
-    return chunks, dense, sparse, hybrid
+        hybrid = HybridRetriever(dense_retriever=dense, sparse_retriever=sparse)
+        logger.info(f"Successfully initialized all retrievers with {len(chunks)} chunks")
+        return chunks, dense, sparse, hybrid
+    except Exception as e:
+        logger.error(f"Failed to initialize retrievers: {e}")
+        raise
 
 
 def render_results(results: List[Tuple[DocumentChunk, float]], score_label: str):
     if not results:
+        logger.warning("No results found to render")
         st.warning("No results found.")
         return
 
+    logger.info(f"Rendering {len(results)} results with score label: {score_label}")
     for i, (chunk, score) in enumerate(results, start=1):
         title = f"Result {i} | {score_label}: {score:.4f}"
         with st.expander(title, expanded=(i == 1)):
@@ -511,13 +591,9 @@ def render_results(results: List[Tuple[DocumentChunk, float]], score_label: str)
             st.write(chunk.text)
 
 
-def main():
-    load_root_env_file()
-
-    st.set_page_config(page_title="Module 3 RAG Systems", layout="wide")
-    st.title("Module 3: RAG Systems UI")
-    st.caption("Hierarchical chunking + Dense retrieval + BM25 + Hybrid fusion + GraphRAG exceptions")
-
+def _render_sidebar() -> Tuple[str, str, int]:
+    """Render sidebar configuration and return user inputs."""
+    logger.debug("Rendering sidebar configuration")
     with st.sidebar:
         st.header("Configuration")
         pdf_path = st.text_input("Policy PDF path", value="sample_expense_policy.pdf")
@@ -527,61 +603,162 @@ def main():
         st.markdown("### Services required")
         st.markdown("- OpenAI API key in `OPENAI_API_KEY`")
         st.markdown("- Qdrant on `http://localhost:6333`")
+    
+    logger.debug(f"Sidebar configuration - PDF: {pdf_path}, Collection: {collection_name}, Top K: {top_k}")
+    return pdf_path, collection_name, top_k
 
+def _validate_pdf_path(pdf_path: str) -> Optional[Path]:
+    """Validate and resolve PDF path."""
+    logger.debug(f"Validating PDF path: {pdf_path}")
     resolved_pdf_path = resolve_pdf_path(pdf_path)
     if not resolved_pdf_path.exists():
+        logger.error(f"PDF not found: {pdf_path}")
         st.error(f"PDF not found: {pdf_path}")
         st.stop()
+    
+    # Validate PDF file integrity
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(resolved_pdf_path)
+        # Try to access first page to validate PDF structure
+        if len(reader.pages) > 0:
+            _ = reader.pages[0].extract_text() or ""
+        logger.info(f"✓ PDF validated: {len(reader.pages)} pages found")
+    except Exception as pdf_error:
+        logger.error(f"❌ PDF file is corrupted or invalid: {pdf_error}")
+        st.error(f"❌ PDF file is corrupted or invalid: {pdf_error}")
+        st.error("Please try regenerating the PDF or using a different file.")
+        st.stop()
+    
+    return resolved_pdf_path
 
+def _initialize_retrievers(pdf_path: str, collection_name: str) -> Tuple[List[DocumentChunk], Any, Any, Any]:
+    """Initialize all retriever systems with enhanced error handling."""
+    logger.info(f"Starting retriever initialization for PDF: {pdf_path}")
     with st.spinner("Building indexes (PDF ingestion + embeddings + BM25)..."):
         try:
-            chunks, dense, sparse, hybrid = initialize_retrievers(str(resolved_pdf_path), collection_name)
+            chunks, dense, sparse, hybrid = initialize_retrievers(pdf_path, collection_name)
+            logger.info(f"✓ Indexed {len(chunks)} chunks successfully.")
+            st.success(f"✓ Indexed {len(chunks)} chunks successfully.")
+            return chunks, dense, sparse, hybrid
         except Exception as exc:
-            st.error(f"Failed to initialize retrievers: {exc}")
+            logger.error(f"❌ Failed to initialize retrievers: {exc}")
+            st.error(f"❌ Failed to initialize retrievers: {exc}")
+            
+            # Provide specific guidance based on error type
+            if "timed out" in str(exc).lower():
+                logger.warning("Initialization timeout detected")
+                st.error("⏰ Initialization timed out. This could be due to:")
+                st.error("  • Large PDF file size")
+                st.error("  • Network connectivity issues")
+                st.error("  • Service unavailability")
+                st.info("💡 Try using a smaller PDF or check your network connections.")
+            elif "pdf" in str(exc).lower() or "startxref" in str(exc).lower():
+                logger.warning("PDF parsing error detected")
+                st.error("📄 PDF parsing error detected:")
+                st.error("  • Corrupted PDF file")
+                st.error("  • Invalid PDF format")
+                st.info("💡 Please regenerate the PDF file and try again.")
+            else:
+                logger.error("Unexpected error during retriever initialization")
+                st.error("🔧 Unexpected error occurred.")
+                st.info("💡 Check your environment variables and service connections.")
+            
             st.stop()
 
-    st.success(f"Indexed {len(chunks)} chunks.")
-
-    tab_dense, tab_sparse, tab_hybrid, tab_graph = st.tabs(
-        ["Dense", "BM25", "Hybrid", "GraphRAG Exceptions"]
-    )
-
+def _render_dense_tab(dense_retriever: Any, top_k: int, tab_dense: Any):
+    """Render dense search tab."""
+    logger.debug("Rendering dense search tab")
     with tab_dense:
         query = st.text_input("Dense query", value="What is the meal limit for individual employees?")
         if st.button("Run dense search", type="primary"):
+            logger.info(f"Running dense search for query: '{query}'")
             try:
-                render_results(dense.search(query=query, top_k=top_k), "Dense score")
+                results = dense_retriever.search(query=query, top_k=top_k)
+                render_results(results, "Dense score")
             except Exception as exc:
+                logger.error(f"Dense search failed: {exc}")
                 st.error(f"Dense search failed: {exc}")
 
+def _render_sparse_tab(sparse_retriever: Any, top_k: int, tab_sparse: Any):
+    """Render BM25 search tab."""
+    logger.debug("Rendering BM25 search tab")
     with tab_sparse:
         query = st.text_input("BM25 query", value="PROJ-2024-001")
         if st.button("Run BM25 search", type="primary"):
+            logger.info(f"Running BM25 search for query: '{query}'")
             try:
-                render_results(sparse.search(query=query, top_k=top_k), "BM25 score")
+                results = sparse_retriever.search(query=query, top_k=top_k)
+                render_results(results, "BM25 score")
             except Exception as exc:
+                logger.error(f"BM25 search failed: {exc}")
                 st.error(f"BM25 search failed: {exc}")
 
+def _render_hybrid_tab(hybrid_retriever: Any, top_k: int, tab_hybrid: Any):
+    """Render hybrid search tab."""
+    logger.debug("Rendering hybrid search tab")
     with tab_hybrid:
         query = st.text_input("Hybrid query", value="Can VP fly first class?")
         if st.button("Run hybrid search", type="primary"):
+            logger.info(f"Running hybrid search for query: '{query}'")
             try:
-                render_results(hybrid.search(query=query, top_k=top_k), "RRF score")
+                results = hybrid_retriever.search(query=query, top_k=top_k)
+                render_results(results, "RRF score")
             except Exception as exc:
+                logger.error(f"Hybrid search failed: {exc}")
                 st.error(f"Hybrid search failed: {exc}")
 
+def _render_graph_tab(tab_graph: Any):
+    """Render GraphRAG exceptions tab."""
+    logger.debug("Rendering GraphRAG exceptions tab")
     with tab_graph:
         kg = build_policy_graph()
         role = st.selectbox("Role", options=["Vice President", "Manager", "Employee"])
         if st.button("Find role exceptions", type="primary"):
+            logger.info(f"Finding exceptions for role: '{role}'")
             exceptions = kg.find_exceptions(role)
             if not exceptions:
+                logger.info(f"No exceptions found for role: {role}")
                 st.info("No exceptions found for this role.")
             else:
+                logger.info(f"Found {len(exceptions)} exceptions for role: {role}")
                 for item in exceptions:
                     st.markdown(f"**{item['name']}**")
                     st.write(item["description"])
                     st.caption(f"Source Section: {item['source_section']}")
+
+def main():
+    """Entry point for Streamlit UI, orchestrating initialization and UI rendering."""
+    logger.info("Starting Streamlit application")
+    load_root_env_file()
+
+    st.set_page_config(page_title="Module 3 RAG Systems", layout="wide")
+    st.title("Module 3: RAG Systems UI")
+    st.caption("Hierarchical chunking + Dense retrieval + BM25 + Hybrid fusion + GraphRAG exceptions")
+
+    # Get configuration from sidebar
+    pdf_path, collection_name, top_k = _render_sidebar()
+    
+    # Validate PDF path
+    resolved_pdf_path = _validate_pdf_path(pdf_path)
+    if not resolved_pdf_path:
+        return
+    
+    # Initialize retrievers
+    chunks, dense, sparse, hybrid = _initialize_retrievers(str(resolved_pdf_path), collection_name)
+    
+    # Create tabs
+    tab_dense, tab_sparse, tab_hybrid, tab_graph = st.tabs(
+        ["Dense", "BM25", "Hybrid", "GraphRAG Exceptions"]
+    )
+
+    # Render tab content
+    _render_dense_tab(dense, top_k, tab_dense)
+    _render_sparse_tab(sparse, top_k, tab_sparse)
+    _render_hybrid_tab(hybrid, top_k, tab_hybrid)
+    _render_graph_tab(tab_graph)
+    
+    logger.info("Streamlit application initialized successfully")
 
 
 if __name__ == "__main__":

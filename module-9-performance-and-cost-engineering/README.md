@@ -21,12 +21,14 @@ Example: thousands of users ask the same per-diem question every morning.
 ## Run
 
 1. Benchmark script:
+
    ```bash
    cd module-9-performance-and-cost-engineering
    python3 perf_benchmark.py
    ```
 
 2. Streamlit app:
+
    ```bash
-   uv run streamlit run module-9-performance-and-cost-engineering/streamlit_app.py
+   uv run py -m streamlit run .\module-9-performance-and-cost-engineering\streamlit_app.py
    ```

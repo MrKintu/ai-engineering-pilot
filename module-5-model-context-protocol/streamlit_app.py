@@ -46,13 +46,8 @@ def upsert_manual_transaction(ledger: MockERPLedger, tx: Dict[str, Any]) -> str:
     return tx_id
 
 
-def main() -> None:
-    st.set_page_config(page_title="Module 5 MCP Secure Adapter", layout="wide")
-    st.title("Module 5: MCP Secure ERP Connector")
-    st.caption("Safe MCP tools + RBAC guardrails for SnapAudit to interact with an ERP ledger")
-
-    ledger, mcp_server, agent = init_system()
-
+def render_sidebar(role: str, digital_key: str, policy_approved: bool) -> tuple[str, str, bool]:
+    """Render the sidebar UI with access controls and return user inputs."""
     with st.sidebar:
         st.header("Access Control")
         role = st.selectbox("Actor Role", ["agent", "manager", "finance_admin"], index=0)
@@ -64,10 +59,17 @@ def main() -> None:
         st.markdown("### RBAC Rules")
         st.write("- <= $10,000: agent/manager/finance_admin can approve")
         st.write("- > $10,000: only finance_admin + correct key")
+    
+    return role, digital_key, policy_approved
 
+
+def render_transaction_selection(ledger: MockERPLedger) -> tuple[str, Dict[str, Any]]:
+    """Render transaction source selection and return selected transaction ID and manual transaction data."""
     mode = st.radio("Transaction Source", ["Existing Ledger", "Manual Entry"], horizontal=True)
-
+    
     selected_tx_id: Optional[str] = None
+    manual_tx: Dict[str, Any] = {}
+    
     if mode == "Existing Ledger":
         selected_tx_id = st.selectbox("Select Transaction", sorted(ledger.transactions.keys()))
         st.json(ledger.transactions[selected_tx_id].to_dict())
@@ -89,25 +91,27 @@ def main() -> None:
             "category": category,
         }
         st.json(manual_tx)
+    
+    return selected_tx_id, manual_tx
 
+
+def render_action_buttons() -> bool:
+    """Render action buttons and return whether to run the action."""
     run_col, reset_col = st.columns([1, 1])
+    
     with run_col:
         if st.button("Run MCP Action", type="primary"):
-            if mode == "Manual Entry":
-                selected_tx_id = upsert_manual_transaction(ledger, manual_tx)
-
-            result = agent.process_transaction(
-                transaction_id=selected_tx_id,
-                policy_approved=policy_approved,
-                actor_role=role,
-                digital_key=digital_key or None,
-            )
-            st.session_state["mcp_result"] = result
-
+            return True
+    
     with reset_col:
         if st.button("Clear Result"):
             st.session_state.pop("mcp_result", None)
+    
+    return False
 
+
+def render_results_section():
+    """Render the tool results section."""
     st.subheader("Tool Result")
     result = st.session_state.get("mcp_result")
     if not result:
@@ -119,6 +123,9 @@ def main() -> None:
             st.error(result.get("error", "Tool call failed"))
         st.json(result)
 
+
+def render_ledger_and_audit_sections(ledger: MockERPLedger, mcp_server: ERPConnectorMCPServer):
+    """Render ledger snapshot and audit log sections."""
     st.subheader("Ledger Snapshot")
     st.dataframe(ledger.list_transactions(), use_container_width=True)
 
@@ -128,10 +135,45 @@ def main() -> None:
     else:
         st.dataframe(mcp_server.audit_log, use_container_width=True)
 
+
+def render_rbac_checker(role: str, digital_key: str):
+    """Render the quick RBAC checker section."""
     st.subheader("Quick RBAC Check")
     sample_amount = st.number_input("Check amount", min_value=0.0, value=12000.0, step=100.0)
     allowed, reason = RBACPolicy.can_approve(role=role, amount=Decimal(str(sample_amount)), digital_key=digital_key or None)
     st.write({"allowed": allowed, "reason": reason})
+
+
+def main() -> None:
+    """Main Streamlit application orchestrator."""
+    st.set_page_config(page_title="Module 5 MCP Secure Adapter", layout="wide")
+    st.title("Module 5: MCP Secure ERP Connector")
+    st.caption("Safe MCP tools + RBAC guardrails for SnapAudit to interact with an ERP ledger")
+
+    ledger, mcp_server, agent = init_system()
+
+    # Render UI sections
+    role, digital_key, policy_approved = render_sidebar("", "", True)
+    selected_tx_id, manual_tx = render_transaction_selection(ledger)
+    
+    # Handle action execution
+    should_run = render_action_buttons()
+    if should_run:
+        if selected_tx_id is None:  # Manual entry mode
+            selected_tx_id = upsert_manual_transaction(ledger, manual_tx)
+
+        result = agent.process_transaction(
+            transaction_id=selected_tx_id,
+            policy_approved=policy_approved,
+            actor_role=role,
+            digital_key=digital_key or None,
+        )
+        st.session_state["mcp_result"] = result
+
+    # Render remaining sections
+    render_results_section()
+    render_ledger_and_audit_sections(ledger, mcp_server)
+    render_rbac_checker(role, digital_key)
 
 
 if __name__ == "__main__":

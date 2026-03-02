@@ -91,8 +91,8 @@ def create_expense_policy_pdf(filename="sample_expense_policy.pdf"):
     story.append(Spacer(1, 0.3*inch))
     story.append(Paragraph("Corporate Travel & Entertainment Guidelines", styles['Heading2']))
     story.append(Spacer(1, 0.5*inch))
-    story.append(Paragraph(f"Effective Date: January 1, 2026", styles['Normal']))
-    story.append(Paragraph(f"Version 3.2", styles['Normal']))
+    story.append(Paragraph("Effective Date: January 1, 2026", styles['Normal']))
+    story.append(Paragraph("Version 3.2", styles['Normal']))
     story.append(Spacer(1, 0.3*inch))
     story.append(Paragraph("CONFIDENTIAL - INTERNAL USE ONLY", styles['Normal']))
     story.append(PageBreak())
@@ -473,7 +473,7 @@ def create_expense_policy_pdf(filename="sample_expense_policy.pdf"):
     
     story.append(Paragraph("4.3.1 Current Mileage Rate", heading3_style))
     story.append(Paragraph(
-        f"<b>Current Rate:</b> $0.67 per mile (effective January 1, 2026)",
+        "<b>Current Rate:</b> $0.67 per mile (effective January 1, 2026)",
         body_style
     ))
     story.append(Paragraph(

@@ -17,4 +17,12 @@ dependencies = [
     "networkx",
     "streamlit",
     "ollama",
+    "langgraph", 
+    "langchain", 
+    "langchain-openai", 
+    "langchain-community", 
+    "qdrant-client", 
+    "pypdf", 
+    "networkx", 
+    "rank_bm25"
 ]

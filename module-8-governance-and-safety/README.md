@@ -22,12 +22,14 @@ Also, sensitive data (credit card numbers/emails) is leaking into logs.
 ## Run
 
 1. Script demo:
+
    ```bash
    cd module-8-governance-and-safety
    python3 security_middleware_demo.py
    ```
 
 2. Streamlit app:
+
    ```bash
-   uv run streamlit run module-8-governance-and-safety/streamlit_app.py
+   uv run py -m streamlit run .\module-8-governance-and-safety\streamlit_app.py
    ```

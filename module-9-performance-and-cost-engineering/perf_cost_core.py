@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 import math
 import random
 import time
 from typing import Any, Callable, Dict, List, Tuple
+import sys
+from pathlib import Path
+
+# Import centralized logging configuration
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+from logger_config import get_logger
+
+# Initialize logger for this module
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -34,6 +43,7 @@ class SemanticCache:
         self.similarity_threshold = similarity_threshold
         self.store: Dict[str, Dict[str, Any]] = {}
         self.log: List[Dict[str, Any]] = []
+        logger.info(f"SemanticCache initialized with threshold: {similarity_threshold}")
 
     @staticmethod
     def _tokenize(text: str) -> set[str]:
@@ -47,9 +57,12 @@ class SemanticCache:
             return 0.0
         intersection = len(ta.intersection(tb))
         union = len(ta.union(tb))
-        return intersection / union
+        similarity_score = intersection / union
+        logger.debug(f"Similarity calculated: {similarity_score:.4f} between '{a[:30]}...' and '{b[:30]}...'")
+        return similarity_score
 
     def get(self, query: str) -> Tuple[bool, Dict[str, Any] | None, str | None, float]:
+        logger.debug(f"Cache GET request for query: '{query}'")
         best_key = None
         best_score = -1.0
 
@@ -61,17 +74,24 @@ class SemanticCache:
 
         hit = best_key is not None and best_score >= self.similarity_threshold
         value = self.store.get(best_key) if hit else None
+        
+        if hit:
+            logger.info(f"Cache HIT for query: '{query}' -> key: '{best_key}', score: {best_score:.4f}")
+        else:
+            logger.debug(f"Cache MISS for query: '{query}' (best score: {best_score:.4f}, threshold: {self.similarity_threshold})")
+        
         self._log("cache_get", query, hit, best_score)
         return hit, value, best_key if hit else None, best_score
 
     def put(self, query: str, answer_payload: Dict[str, Any]) -> None:
+        logger.info(f"Cache PUT request for query: '{query}'")
         self.store[query] = answer_payload
         self._log("cache_put", query, True, 1.0)
 
     def _log(self, action: str, query: str, hit: bool, score: float) -> None:
         self.log.append(
             {
-                "time": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                "time": datetime.now(timezone.utc).isoformat(timespec="seconds") + "Z",
                 "action": action,
                 "query": query,
                 "hit": hit,
@@ -86,16 +106,22 @@ class LLMServiceSimulator:
 
     COST_PER_1K_TOKENS = Decimal("0.10")
 
+    def __init__(self):
+        logger.info("LLMServiceSimulator initialized")
+
     def answer(self, query: str, system_prompt_tokens: int = 180) -> Dict[str, Any]:
+        logger.info(f"Processing LLM request for query: '{query[:50]}...'")
         user_tokens = max(8, len(query) // 4)
         output_tokens = 40
         total_tokens = system_prompt_tokens + user_tokens + output_tokens
 
         # Simulated latency: base + token-dependent.
         latency_ms = 120 + total_tokens * 0.35
+        logger.debug(f"Simulating LLM latency: {latency_ms:.1f}ms for {total_tokens} tokens")
         time.sleep(latency_ms / 1000.0)
 
         cost = (Decimal(total_tokens) / Decimal(1000)) * self.COST_PER_1K_TOKENS
+        logger.info(f"LLM request completed - Cost: ${cost:.4f}, Tokens: {total_tokens}, Latency: {latency_ms:.1f}ms")
 
         answer = self._rule_answer(query)
         return {
